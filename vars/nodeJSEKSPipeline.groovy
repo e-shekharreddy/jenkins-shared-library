@@ -1,24 +1,25 @@
 def call(Map configMap){
     pipeline {
-        agent {
-            node {
-                label 'roboshop' 
-            } 
+        agent { node { label 'roboshop' } }
+        // developers can choose to deploy or not
+        parameters {
+            booleanParam(name: 'deploy', defaultValue: false, description: 'Deploy the application after build')
         }
         environment {
             appVersion = ""
-            acc_id = "160885265516"
+            ACC_ID = "160885265516"
+            PROJECT = configMap.get("project")
+            COMPONENT = configMap.get("component")
             region = "us-east-1"
-            project = configMap.get("project")
-            component = configMap.get("component")
-        }
-        options {
-            timeout(time: 15, unit: 'MINUTES')
-        }
-        parameters {
-            booleanParam(name: 'DEPLOY', defaultValue: false, description: 'Toggle this value')
         }
         stages {
+            stage('test') {
+                steps {
+                    sh """
+                        echo "triggering test: ${configMap.project}"
+                    """
+                }
+            }
             stage('Read version'){
                 steps {
                     script {
@@ -28,22 +29,19 @@ def call(Map configMap){
                         // Access fields directly
                         appVersion = packageJson.version
                         echo "Building version ${appVersion}"
-                        //sh 'printenv | sort'
                     }
                 }
             }
-            stage('Install Dependencies') {
+            // THis is for VM
+            /* stage('Install Dependencies') {
                 steps {
-                    script{
-                        sh """
-                            npm install
-                        """
-                    }
+                    sh 'npm install'
                 }
-            }
-            stage('Unit tests') {
+            }*/
+
+            stage('Unit Tests') {
                 steps {
-                    script{
+                    script {
                         def testResult = sh(script: 'npm test', returnStatus: true)
                         if (testResult != 0) {
                             utils.updateCommitStatus('failure', 'Unit tests failed', 'unit-tests')
@@ -54,17 +52,19 @@ def call(Map configMap){
                     }
                 }
             }
-            stage ('SonarQube Analysis'){
+
+            stage('SonarQube Analysis'){
                 steps {
                     script {
-                        def scannerHome = tool name: 'sonar-8' // agent configuration
-                        withSonarQubeEnv('sonar-server') { // analysing and uploading to server
+                        def scannerHome = tool name: 'sonar-8'
+                        withSonarQubeEnv('sonar-server') {
                             sh "${scannerHome}/bin/sonar-scanner"
                         }
                     }
                 }
             }
-            stage("Quality Gate") {
+
+            stage('Quality Gate') {
                 steps {
                     script {
                         timeout(time: 1, unit: 'HOURS') {
@@ -78,11 +78,11 @@ def call(Map configMap){
                         }
                     }
                 }
-            }
-            stage('Dependabot Alerts Check') {
+            } 
+            stage('Dependabot Security Check') {
                 steps {
                     script {
-                        withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN_SCAN')]) {
+                        withCredentials([string(credentialsId: 'GITHUB_TOKEN_SCAN', variable: 'GITHUB_TOKEN_SCAN')]) {
                             def repoUrl = sh(script: 'git remote get-url origin', returnStdout: true).trim()
                             def repoPath = repoUrl.replaceAll(/.*github\.com[\/:]/, '').replaceAll(/\.git$/, '')
 
@@ -108,17 +108,14 @@ def call(Map configMap){
                     }
                 }
             }
+        
             stage('Build Image') {
                 steps {
-                script{
-                        withAWS(credentials: 'aws-creds', region: "${region}") {
-                            // Commands here have AWS authentication
-                            sh """
-                                aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${acc_id}.dkr.ecr.us-east-1.amazonaws.com
-                                docker build -t ${acc_id}.dkr.ecr.${region}.amazonaws.com/${project}/${component}:${appVersion} .
-                                docker push ${acc_id}.dkr.ecr.${region}.amazonaws.com/${project}/${component}:${appVersion}
-                            """
-                        }
+                    script{
+                        // Commands here have AWS authentication
+                        sh """
+                            docker build -t ${ACC_ID}.dkr.ecr.${region}.amazonaws.com/${PROJECT}/${COMPONENT}:${appVersion} .
+                        """
                     }
                 }
             }
@@ -134,7 +131,7 @@ def call(Map configMap){
                                 --format table \
                                 --output trivy-os-report.txt \
                                 --exit-code 0 \
-                                ${acc_id}.dkr.ecr.${region}.amazonaws.com/${project}/${component}:${appVersion}
+                                ${ACC_ID}.dkr.ecr.${region}.amazonaws.com/${PROJECT}/${COMPONENT}:${appVersion}
                         """
 
                         // Print table to console
@@ -150,7 +147,7 @@ def call(Map configMap){
                                     --format table \
                                     --exit-code 1 \
                                     --quiet \
-                                    ${acc_id}.dkr.ecr.${region}.amazonaws.com/${project}/${component}:${appVersion}
+                                    ${ACC_ID}.dkr.ecr.${region}.amazonaws.com/${PROJECT}/${COMPONENT}:${appVersion}
                             """,
                             returnStatus: true
                         )
@@ -165,7 +162,7 @@ def call(Map configMap){
                     }
                 }
             }
-            stage('Trivy Dockerfile Scan'){
+            stage('Trivy Dockerfile Scan') {
                 steps {
                     script {
                         sh """
@@ -203,8 +200,8 @@ def call(Map configMap){
                         try {
                             withAWS(credentials: 'aws-creds', region: "${region}") {
                                 sh """
-                                    aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${acc_id}.dkr.ecr.us-east-1.amazonaws.com
-                                    docker push ${acc_id}.dkr.ecr.${region}.amazonaws.com/${project}/${component}:${appVersion}
+                                    aws ecr get-login-password --region ${region} | docker login --username AWS --password-stdin ${ACC_ID}.dkr.ecr.us-east-1.amazonaws.com
+                                    docker push ${ACC_ID}.dkr.ecr.${region}.amazonaws.com/${PROJECT}/${COMPONENT}:${appVersion}
                                 """
                             }
                             utils.updateCommitStatus('success', "Image ${appVersion} pushed to ECR", 'push-image')
@@ -215,19 +212,56 @@ def call(Map configMap){
                     }
                 }
             }
-        }
-
-    // post build
-        post { 
-            always { 
-                echo 'I will always say Hello again!'
-                cleanWs()
+            stage('Deploy') {
+                when {
+                    expression { params.deploy == true }
+                }
+                steps {
+                    script{
+                        withAWS(region:"${region}",credentials:'aws-creds') {
+                            sh """
+                                cd helm
+                                set -e
+                                aws eks update-kubeconfig --region ${region} --name ${PROJECT}-dev
+                                kubectl get nodes
+                                sed -i "s/IMAGE_VERSION/${appVersion}/g" values.yaml
+                                helm upgrade --install ${COMPONENT} -f values-dev.yaml -n ${PROJECT} --atomic --wait --timeout=5m .
+                                #kubectl apply -f ${COMPONENT}-dev.yaml
+                            """
+                        }
+                    }
+                }
             }
+
+            stage('Run Component Tests') {
+                when {
+                    expression { params.deploy == true }
+                }
+                steps {
+                    script {
+                        def testJob = "${PROJECT}/${COMPONENT}-tests"
+                        echo "Triggering test pipeline: ${testJob}"
+                        def result = build(
+                            job: testJob,
+                            wait: true,
+                            propagate: false
+                        )
+                        if (result.result != 'SUCCESS') {
+                            utils.updateCommitStatus('failure', "Functional tests failed — see ${result.absoluteUrl}", 'dev-deploy')
+                            error("${COMPONENT} tests failed — deploy marked as failure. Check ${result.absoluteUrl} for details.")
+                        }
+                        utils.updateCommitStatus('success', 'Functional tests passed — deploy successful', 'dev-deploy')
+                        echo "${COMPONENT} tests passed."
+                    }
+                }
+            }
+        }
+        post {
             success {
-                echo "pipeline success"
+                echo "Pipeline succeeded on branch: ${env.BRANCH_NAME}"
             }
             failure {
-                echo "pipeline failure"
+                echo "Pipeline failed on branch: ${env.BRANCH_NAME}"
             }
         }
     }
