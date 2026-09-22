@@ -117,7 +117,7 @@ def call(Map configMap){
                     }
                 }
             }
-            stage('Trivy OS Scan') {
+            /* stage('Trivy OS Scan') {
                 steps {
                     script {
                         // Generate table report
@@ -159,7 +159,7 @@ def call(Map configMap){
                         }
                     }
                 }
-            }
+            } */
             stage('Trivy Dockerfile Scan'){
                 steps {
                     script {
