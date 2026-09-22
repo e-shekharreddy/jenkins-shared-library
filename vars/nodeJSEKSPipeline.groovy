@@ -7,7 +7,7 @@ def call(Map configMap){
         }
         environment {
             appVersion = ""
-            acc_id = "160885265516"
+            acc_id = "764694154057"
             region = "us-east-1"
             project = configMap.get("project")
             component = configMap.get("component")
@@ -123,13 +123,13 @@ def call(Map configMap){
                         // Generate table report
                         sh """
                             trivy image \
-                            --scanners vuln \
-                            --pkg-types os \
-                            --severity HIGH,MEDIUM \
-                            --format table \
-                            --output trivy-os-report.txt \
-                            --exit-code 0 \
-                            ${ACC_ID}.dkr.ecr.${REGION}.amazonaws.com/roboshop/catalogue:${appVersion}
+                                --scanners vuln \
+                                --pkg-types os \
+                                --severity HIGH,MEDIUM \
+                                --format table \
+                                --output trivy-os-report.txt \
+                                --exit-code 0 \
+                                ${acc_id}.dkr.ecr.${region}.amazonaws.com/${project}/${component}:${appVersion}
                         """
 
                         // Print table to console
@@ -139,20 +139,22 @@ def call(Map configMap){
                         def scanResult = sh(
                             script: """
                                 trivy image \
-                                --scanners vuln \
-                                --pkg-types os \
-                                --severity HIGH,MEDIUM \
-                                --format table \
-                                --exit-code 1 \
-                                --quiet \
-                                ${ACC_ID}.dkr.ecr.${REGION}.amazonaws.com/roboshop/catalogue:${appVersion}
+                                    --scanners vuln \
+                                    --pkg-types os \
+                                    --severity HIGH,MEDIUM \
+                                    --format table \
+                                    --exit-code 1 \
+                                    --quiet \
+                                    ${acc_id}.dkr.ecr.${region}.amazonaws.com/${project}/${component}:${appVersion}
                             """,
                             returnStatus: true
                         )
 
                         if (scanResult != 0) {
+                            utils.updateCommitStatus('failure', 'Trivy OS scan: HIGH/MEDIUM vulnerabilities found', 'trivy-scan')
                             error "🚨 Trivy found HIGH/MEDIUM OS vulnerabilities. Pipeline failed."
                         } else {
+                            utils.updateCommitStatus('success', 'Trivy OS scan passed — no HIGH/MEDIUM vulnerabilities', 'trivy-scan')
                             echo "✅ No HIGH or MEDIUM OS vulnerabilities found. Pipeline continues."
                         }
                     }
