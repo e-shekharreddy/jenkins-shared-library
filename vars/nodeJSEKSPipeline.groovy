@@ -64,7 +64,7 @@ def call(Map configMap){
                     }
                 }
             }
-            /* stage("Quality Gate") {
+            stage("Quality Gate") {
                 steps {
                     script {
                         timeout(time: 1, unit: 'HOURS') {
@@ -78,7 +78,7 @@ def call(Map configMap){
                         }
                     }
                 }
-            } */
+            }
             stage('Dependabot Alerts Check') {
                 steps {
                     script {
